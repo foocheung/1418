@@ -1,0 +1,553 @@
+---
+title: "NIAID-1418 Spectral Signature Analysis"
+subtitle: "5-Laser vs 6-Laser Configuration and Fixation Effects"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    theme: cosmo
+    embed-resources: true
+    smooth-scroll: true
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r setup}
+#| include: false
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readr)
+library(DT)
+
+OUTDIR <- "spectral_analysis_results2"
+
+# ---------------------------------------------------------------------------
+# Robust presence check for the analysis results folder
+# ---------------------------------------------------------------------------
+if (!dir.exists(OUTDIR)) {
+  stop(
+    "Results directory not found: '", OUTDIR, "'.\n",
+    "Place the analysis output folder (containing Q1a_peak_shift/, Q2_fixation/, figures/, etc.)\n",
+    "in the same directory as this .qmd (or update the OUTDIR variable) and re-render."
+  )
+}
+
+read_result <- function(...) {
+  f <- file.path(OUTDIR, ...)
+  if (!file.exists(f)) {
+    stop("Missing required result file: ", f,
+         "\nRun the analysis R script first, then re-render this report.")
+  }
+  readr::read_csv(f, show_col_types = FALSE)
+}
+
+# Optional files degrade gracefully rather than stopping the render
+read_optional <- function(...) {
+  f <- file.path(OUTDIR, ...)
+  if (!file.exists(f)) return(NULL)
+  readr::read_csv(f, show_col_types = FALSE)
+}
+
+dt_report <- function(x, caption = NULL) {
+  DT::datatable(
+    x,
+    caption = caption,
+    filter = "top",
+    rownames = FALSE,
+    extensions = "Buttons",
+    options = list(
+      pageLength = 10,
+      scrollX = TRUE,
+      dom = "Bfrtip",
+      buttons = c("copy", "csv", "excel")
+    )
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Q1a
+# ---------------------------------------------------------------------------
+q1a <- read_result("Q1a_peak_shift", "Q1a_all_fluorochrome_peak_shifts.csv")
+q1a_summary <- read_result("Q1a_peak_shift", "Q1a_peak_shift_summary_by_treatment.csv")
+q1a_changed <- read_result("Q1a_peak_shift", "Q1a_changed_identified_maxima.csv")
+q1a_near_ties <- read_result("Q1a_peak_shift", "Q1a_near_tied_maxima.csv")
+
+q1a_combined <- read_result(
+  "Q1a_peak_shift", "combined_peak_outcomes",
+  "Q1a_03_COMBINED_peak_outcomes_one_row_per_fluor_treatment.csv"
+)
+q1a_reporting <- read_result(
+  "Q1a_peak_shift", "combined_peak_outcomes",
+  "Q1a_00_MAIN_six_category_reporting_table.csv"
+)
+q1a_reporting_summary <- read_result(
+  "Q1a_peak_shift", "combined_peak_outcomes",
+  "Q1a_00_six_category_counts.csv"
+)
+q1a_category_summary <- read_result(
+  "Q1a_peak_shift", "combined_peak_outcomes",
+  "Q1a_05_peak_outcome_category_counts.csv"
+)
+q1a_nonstable <- read_result(
+  "Q1a_peak_shift", "combined_peak_outcomes",
+  "Q1a_06_COMBINED_NONSTABLE_cases_only.csv"
+)
+
+# Fixed display order for the six Q1a reporting categories.
+# Keeping these levels explicitly means categories with zero observed rows
+# remain visible rather than disappearing.
+q1a_reporting_levels <- c(
+  "Configuration Only – dUV Block Difference",
+  "Configuration Only – Comparable Area",
+  "Treatment Effect – 5L Only",
+  "Treatment Effect – 6L Only",
+  "Treatment Effect – Both Configurations",
+  "Stable"
+)
+
+# Normalize legacy hyphenated labels before converting to a factor.
+q1a_reporting <- q1a_reporting |>
+  mutate(
+    Reporting_category = dplyr::recode(
+      as.character(Reporting_category),
+      "Configuration Only - dUV Block Difference" = "Configuration Only – dUV Block Difference",
+      "Configuration Only - Comparable Area" = "Configuration Only – Comparable Area",
+      "Treatment Effect - 5L Only" = "Treatment Effect – 5L Only",
+      "Treatment Effect - 6L Only" = "Treatment Effect – 6L Only",
+      "Treatment Effect - Both Configurations" = "Treatment Effect – Both Configurations",
+      .default = as.character(Reporting_category)
+    ),
+    Reporting_category = factor(Reporting_category, levels = q1a_reporting_levels)
+  ) |>
+  arrange(Treatment, Reporting_category, Fluorochrome)
+
+if (any(is.na(q1a_reporting$Reporting_category))) {
+  stop("Q1a Reporting_category contains an unmapped label. Check Q1a_00_MAIN_six_category_reporting_table.csv.")
+}
+
+# Rebuild the display summary so all six categories appear for every treatment.
+q1a_reporting_summary_display <- q1a_reporting |>
+  mutate(Reporting_category = as.character(Reporting_category)) |>
+  count(Treatment, Reporting_category, name = "N") |>
+  tidyr::complete(
+    Treatment,
+    Reporting_category = q1a_reporting_levels,
+    fill = list(N = 0)
+  ) |>
+  group_by(Treatment) |>
+  mutate(
+    Total = sum(N),
+    Percent = ifelse(Total > 0, 100 * N / Total, 0)
+  ) |>
+  ungroup() |>
+  mutate(
+    Reporting_category = factor(Reporting_category, levels = q1a_reporting_levels)
+  ) |>
+  arrange(Treatment, Reporting_category)
+
+# ---------------------------------------------------------------------------
+# Q1b
+# ---------------------------------------------------------------------------
+q1b <- read_result("Q1b_pairwise_similarity", "Q1b_all_pairwise_similarity_5L_vs_6L.csv")
+q1b_cosine_all <- read_result("Q1b_pairwise_similarity", "Q1b_ALL_unique_pairs_cosine_filterable.csv")
+q1b_threshold_counts <- read_result("Q1b_pairwise_similarity", "Q1b_cosine_threshold_counts.csv")
+q1b_reference_090 <- read_result("Q1b_pairwise_similarity", "Q1b_pairs_cosine_ge_0.90_in_either_configuration.csv")
+q1b_heatmap_index <- read_result("Q1b_pairwise_similarity", "Q1b_clustered_cosine_heatmap_index.csv")
+q1b_cluster_membership <- read_result("Q1b_pairwise_similarity", "Q1b_cluster_membership_reference_0.90.csv")
+q1b_cluster_pairwise_summary <- read_result("Q1b_pairwise_similarity", "Q1b_cluster_pairwise_cosine_summary_reference_0.90.csv")
+
+# ---------------------------------------------------------------------------
+# Analysis settings / audits (optional)
+# ---------------------------------------------------------------------------
+settings_tbl    <- read_optional("00_analysis_settings.csv")
+scaling_audit   <- read_optional("00_scaling_audit.csv")
+data_audit      <- read_optional("00_data_audit.csv")
+channel_audit   <- read_optional("00_channel_audit.csv")
+excluded_fluors <- read_optional("00_excluded_fluorochromes.csv")
+
+get_setting <- function(nm, default = NA_character_) {
+  if (is.null(settings_tbl)) return(default)
+  v <- settings_tbl$Value[settings_tbl$Setting == nm]
+  if (!length(v)) default else v[1]
+}
+
+preprocess_used   <- get_setting("PREPROCESS", "Raw values")
+scale_consistent  <- identical(get_setting("Native scale consistent"), "TRUE")
+intensity_valid   <- identical(get_setting("Intensity metrics valid"), "TRUE")
+intensity_reason  <- get_setting("Intensity suppression reason", "")
+
+# ---------------------------------------------------------------------------
+# Q2
+# ---------------------------------------------------------------------------
+q2a <- read_result("Q2_fixation", "Q2a_all_fixation_effects.csv")
+q2a_summary <- read_result("Q2_fixation", "Q2a_treatment_summary.csv")
+q2a_top5_rmse <- read_result("Q2_fixation", "Q2a_top5_highest_RMSE_each_treatment_config.csv")
+q2b <- read_result("Q2_fixation", "Q2b_fluorochrome_susceptibility_rankings.csv")
+q2c <- read_result("Q2_fixation", "Q2c_5L_vs_6L_fixation_effects.csv")
+
+q2a_omnibus      <- read_optional("Q2_fixation", "Q2a_omnibus_treatment_test.csv")
+q2a_pairwise     <- read_optional("Q2_fixation", "Q2a_pairwise_treatment_tests.csv")
+q2a_sensitivity  <- read_optional("Q2_fixation", "Q2a_normalization_sensitivity_summary.csv")
+q2b_family_ann   <- read_optional("Q2_fixation", "Q2b_fluorochrome_family_annotation_AUTO.csv")
+q2b_by_family    <- read_optional("Q2_fixation", "Q2b_susceptibility_by_family.csv")
+q2b_family_test  <- read_optional("Q2_fixation", "Q2b_family_level_test.csv")
+
+family_curated <- !is.null(q2b_by_family) &&
+  identical(unique(q2b_by_family$Annotation_source), "User-curated")
+
+fmt_p <- function(p) ifelse(is.na(p), "NA",
+                            ifelse(p < 0.001, "< 0.001", sprintf("%.3f", p)))
+```
+
+<style>
+.reader-box {
+  padding: 12px 14px;
+  margin: 0 0 20px 0;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+.reader-box button, .reader-box select {
+  margin-right: 6px;
+  margin-bottom: 4px;
+}
+.simple-result {
+  padding: 12px 16px;
+  margin: 12px 0 18px 0;
+  border-left: 4px solid #0d6efd;
+  background: #f0f7ff;
+}
+.simple-result strong {
+  color: #0a58ca;
+}
+.how-to-read {
+  padding: 12px 16px;
+  margin: 0 0 24px 0;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  background: #f8f9fa;
+  font-size: 0.95em;
+}
+</style>
+
+
+## Project Goals
+
+*The project goals below are copied exactly from the RTB Flow Core Slide Deck.*
+
+- **Main goal:** Impact of number of lasers (5L x 6L) and fixation in panel resolution in the spectral signature of fluorochromes
+
+- **Specific aims:**
+  
+  1. **Instrument configuration:**
+     - a) Peak shift?
+     - b) Is similarity between fluors constant?
+  
+  2. **Fixation impact:**
+     - a) Overall impact of each treatment – any worse?
+     - b) Type of fluor more susceptible?
+     - c) Impact of number of lasers
+     
+
+# Q1 — Instrument configuration
+
+## Q1a — Do spectral peaks shift?
+
+<div class="simple-result">
+<p><strong>Answer to Q1a:</strong></p>
+<p><strong>Yes, spectral peaks can shift, but treatment-associated peak shifts were uncommon.</strong> Most fluorochrome × treatment comparisons remained <strong>Stable</strong> (77.9% for 1% PFA, 73.8% for 4% PFA, and 74.5% for Perm). Configuration-only peak differences accounted for approximately 12–13% of cases and were almost entirely associated with the dUV block. Treatment-associated peak changes affecting both 5L and 6L occurred in 6.9–10.3% of cases, while configuration-specific treatment effects were rare (≤3.4%). Near-tied maxima should be interpreted cautiously because small differences between nearly equal detector values can change which detector is identified as the maximum.</p>
+</div>
+
+The results below separate configuration-only peak differences from treatment-associated peak changes and stable spectra. **Definitions and criteria for each reporting category are provided in the Appendix.**
+```{r q1a-lean-counts}
+#| echo: false
+q1a_counts_kable <- q1a_reporting_summary_display |>
+  mutate(
+    Reporting_category = as.character(Reporting_category),
+    Percent = round(Percent, 1)
+  ) |>
+  select(Treatment, Reporting_category, N, Percent)
+
+knitr::kable(
+  q1a_counts_kable,
+  col.names = c("Treatment", "Reporting category", "N", "Percent (%)"),
+  align = c("l", "l", "r", "r"),
+  caption = "Q1a — peak-behavior categories by treatment"
+)
+```
+
+```{r q1a-lean-plot}
+#| echo: false
+#| out-width: "95%"
+f <- file.path(OUTDIR, "figures", "Q1a_COMBINED_peak_outcome_categories.png")
+if (file.exists(f)) {
+  knitr::include_graphics(f)
+} else {
+  cat("*Figure not found:* `Q1a_COMBINED_peak_outcome_categories.png`\n")
+}
+```
+
+Links to the corresponding plots are provided in the last column of the table for each relevant fluorochrome row.
+ 
+```{r q1a-lean-table}
+#| echo: false
+q1a_reporting_linked <- q1a_reporting
+
+# The existing final column already contains the relative plot path.
+plot_col <- tail(names(q1a_reporting_linked), 1)
+
+# Convert ONLY that existing final-column path into a clickable GitHub link.
+q1a_reporting_linked[[plot_col]] <- ifelse(
+  is.na(q1a_reporting_linked[[plot_col]]) |
+    q1a_reporting_linked[[plot_col]] == "",
+  "",
+  sprintf(
+    '<a href="https://github.com/foocheung/1418/blob/main/%s" target="_blank" rel="noopener noreferrer">View plot</a>',
+    gsub("\\\\", "", q1a_reporting_linked[[plot_col]])
+  )
+)
+
+DT::datatable(
+  q1a_reporting_linked,
+  rownames = FALSE,
+  escape = FALSE,
+  filter = "top",
+  extensions = "Buttons",
+  options = list(
+    pageLength = 25,
+    scrollX = TRUE,
+    autoWidth = TRUE,
+    dom = "Bfrtip",
+    buttons = c("copy", "csv", "excel")
+  ),
+  caption = htmltools::tags$caption(
+    style = "caption-side: top; text-align: left; font-weight: 600;",
+    "Q1a — fluorochrome × treatment peak results"
+  )
+)
+```
+
+## Q1b — Is similarity between fluorochromes constant?
+
+<div class="simple-result">
+<p><strong>Answer to Q1b:</strong></p>
+<p><strong>Across unfixed, 1% PFA, 4% PFA, and Perm conditions, fluorochrome similarity was generally stable between 5L and 6L, but it was not identical.</strong> Cosine similarity measures how similar the spectral shapes of two fluorochromes are, where values closer to 1 indicate more similar spectra. For each condition, pairwise cosine similarity was compared directly between the 5L and 6L configurations.</p>
+
+<p>Across conditions, the median absolute difference in pairwise cosine similarity between 5L and 6L was only <strong>0.0008–0.0013</strong>. This means that, for a typical fluorochrome pair, changing from 5L to 6L produced almost no change in how similar their spectra were. The number of highly similar fluorochrome pairs (cosine similarity ≥ 0.90) was also nearly the same between configurations.</p>
+
+<p>However, a small number of fluorochrome pairs behaved differently. Among the fixation/permeabilization treatments, the <strong>largest differences ranged from 0.197 to 0.415</strong> (Perm = 0.197, 4% PFA = 0.335, and 1% PFA = 0.415). These values were much larger than the typical difference of 0.0008–0.0013. <strong>In simple terms, 5L and 6L produce very similar fluorochrome-to-fluorochrome relationships overall, but a few specific fluorochrome pairs can show much larger differences between the two configurations.</strong></p>
+</div>
+
+**Cosine similarity** is the primary measure. Cosine similarity was used to quantify the similarity between fluorochrome spectral signatures across detectors. In spectral flow cytometry, cosine similarity provides a pairwise measure of spectral overlap, with values approaching 1 indicating increasingly similar spectral shapes. This metric is commonly used for evaluating fluorochrome similarity, panel design, and spectral stability (Jensen et al., 2021; Rajwa et al., 2025; Mage et al., 2026). Values approaching 1 indicate increasingly similar spectral shapes. The clustered heatmaps show broader spectral neighborhoods; the pairwise table gives the exact 5L and 6L cosine similarity for each pair of different fluorochromes.
+
+```{r q1b-lean-heatmaps, echo=FALSE, out.width="100%", fig.show="hold"}
+heatmap_dir <- file.path(OUTDIR, "Q1b_pairwise_similarity", "clustered_heatmaps")
+heatmap_paths <- list.files(
+  heatmap_dir,
+  pattern = "\\.png$",
+  full.names = TRUE
+)
+if (length(heatmap_paths) > 0) {
+  knitr::include_graphics(heatmap_paths)
+} else {
+  cat("*No clustered heatmaps found in* `Q1b_pairwise_similarity/clustered_heatmaps/`.\n")
+}
+```
+
+```{r q1b-lean-pairs}
+#| echo: false
+if (exists("q1b_cosine_all") && !is.null(q1b_cosine_all)) {
+  dt_report(
+    q1b_cosine_all,
+    "Q1b — all unique distinct-fluorochrome cosine similarities in 5L and 6L"
+  )
+} else if (exists("q1b") && !is.null(q1b)) {
+  dt_report(q1b, "Q1b — pairwise spectral similarity")
+}
+```
+
+# Q2 — Fixation impact
+
+## Q2a — What is the overall impact of each treatment?
+
+<div class="simple-result">
+<p><strong>Answer to Q2a:</strong></p>
+<p><strong>Perm had the greatest overall impact on spectral signatures, 4% PFA was intermediate, and 1% PFA had the smallest impact.</strong> Median RMSE followed the same ordering in both configurations: <strong>Perm > 4% PFA > 1% PFA</strong> (5L: 0.0074 > 0.0062 > 0.0053; 6L: 0.0078 > 0.0061 > 0.0053). Because higher RMSE indicates greater deviation from the corresponding Unfixed spectrum, Perm produced the largest spectral change and 1% PFA the smallest. Treatment differences were statistically significant in both 5L and 6L (Friedman P < 0.001), although the overall effect sizes were modest (Kendall W = 0.126 and 0.096, respectively). All pairwise treatment comparisons remained significant after BH correction, with the largest separation occurring between 1% PFA and Perm in both configurations.</p>
+</div>
+
+Each treated spectrum is compared with the **corresponding Unfixed spectrum in the same configuration**. RMSE is the primary magnitude measure: higher RMSE means a larger treatment-associated spectral change.
+
+```{r q2a-lean-plot}
+#| echo: false
+#| fig-width: 10
+#| fig-height: 6
+f <- file.path(OUTDIR, "figures", "Q2a_RMSE_by_treatment_and_config.png")
+if (file.exists(f)) {
+  knitr::include_graphics(f)
+} else {
+  cat("*Figure not found:* `Q2a_RMSE_by_treatment_and_config.png`\n")
+}
+```
+
+```{r q2a-lean-omnibus}
+#| echo: false
+if (!is.null(q2a_omnibus)) {
+  knitr::kable(
+    q2a_omnibus |>
+      mutate(P_value = fmt_p(P_value)) |>
+      select(Config, Test, N_fluorochromes, Statistic, df,
+             `P value` = P_value, `Kendall W` = Kendall_W),
+    caption = "Q2a — overall treatment comparison",
+    digits = 3
+  )
+} else {
+  cat("*Omnibus test results not available.*\n")
+}
+```
+
+```{r q2a-lean-pairwise}
+#| echo: false
+if (!is.null(q2a_pairwise)) {
+  dt_report(
+    q2a_pairwise |>
+      mutate(
+        across(c(P_value, P_adj_BH), fmt_p),
+        across(where(is.numeric), ~ round(.x, 4))
+      ) |>
+      select(
+        Config, Treatment_A, Treatment_B, N_pairs,
+        Median_RMSE_A, Median_RMSE_B, Median_paired_difference,
+        `Rank-biserial r` = Rank_biserial_r,
+        `P` = P_value, `P (BH)` = P_adj_BH, Direction
+      ),
+    "Q2a — paired treatment comparisons"
+  )
+} else {
+  cat("*Pairwise treatment comparison table not available.*\n")
+}
+```
+
+## Q2b — Are particular fluorochromes or fluorochrome types more susceptible?
+
+<div class="simple-result">
+<p><strong>Answer to Q2b:</strong></p>
+<p><strong>Yes, susceptibility differs among individual fluorochromes, but there is no clear evidence that entire fluorochrome families are systematically more susceptible.</strong> Based on mean fixation-associated RMSE across treatments, the highest-ranked fluorochromes in 5L were <strong>DL755, JaneliaFluor646, and LiveDeadFixableNIR</strong>; in 6L they were <strong>JaneliaFluor646, DL755, and eFluor455UV</strong>. This indicates that the largest fixation-associated spectral changes are concentrated in particular fluorochromes rather than consistently across a fluorochrome family. At the family level, no comparison remained significant after BH correction. The 6L–Perm comparison had an unadjusted P = 0.029 (ε² = 0.216), but this did not survive multiple-testing correction. Family-level conclusions should remain provisional because the current family annotation is automatic/provisional.</p>
+</div>
+
+The individual ranking identifies fluorochromes with larger fixation-associated changes. The family analysis asks whether RMSE differs systematically among the provisional fluorochrome families.
+
+```{r q2b-lean-family-plot}
+#| echo: false
+#| out-width: "100%"
+f <- file.path(OUTDIR, "figures", "Q2b_RMSE_by_family.png")
+if (file.exists(f)) {
+  knitr::include_graphics(f)
+} else {
+  cat("*Figure not found:* `Q2b_RMSE_by_family.png`\n")
+}
+```
+
+```{r q2b-lean-family-test}
+#| echo: false
+if (!is.null(q2b_family_test)) {
+  knitr::kable(
+    q2b_family_test |>
+      mutate(across(c(P_value, P_adj_BH), fmt_p)) |>
+      select(
+        Config, Treatment, N_families, N_fluorochromes,
+        `Chi-squared` = Chi_squared, df,
+        `P` = P_value, `P (BH)` = P_adj_BH,
+        `Epsilon squared` = Epsilon_squared
+      ),
+    caption = "Q2b — fluorochrome-family susceptibility test",
+    digits = 3
+  )
+} else {
+  cat("*Family-level test results not available.*\n")
+}
+```
+
+```{r q2b-lean-ranking}
+#| echo: false
+dt_report(q2b, "Q2b — individual fluorochrome susceptibility")
+```
+
+## Q2c — Does the impact of fixation differ between 5L and 6L?
+
+<div class="simple-result">
+<p><strong>Answer to Q2c:</strong></p>
+<p><strong>Overall, the magnitude of fixation-associated spectral change was similar between 5L and 6L, but individual fluorochromes showed configuration-dependent differences.</strong> Treatment-level median RMSE values were very close between configurations (1% PFA: 0.0053 in both; 4% PFA: 0.0062 in 5L vs. 0.0061 in 6L; Perm: 0.0074 in 5L vs. 0.0078 in 6L). The median absolute paired 5L–6L RMSE difference was small—approximately 0.0011 for 1% PFA, 0.0011 for 4% PFA, and 0.0015 for Perm—although some individual fluorochrome × treatment pairs deviated more strongly from the 1:1 relationship. Thus, configuration does not produce a large uniform shift in fixation impact, but it can affect the measured response of specific fluorochromes.</p>
+</div>
+
+For the same fluorochrome and treatment, fixation RMSE in 5L is compared directly with fixation RMSE in 6L. The 1:1 line represents equal measured fixation effect in the two configurations.
+
+```{r q2c-lean-plot}
+#| echo: false
+#| fig-width: 11
+#| fig-height: 7
+f <- file.path(OUTDIR, "figures", "Q2c_RMSE_5L_vs_6L.png")
+if (file.exists(f)) {
+  knitr::include_graphics(f)
+} else {
+  cat("*Figure not found:* `Q2c_RMSE_5L_vs_6L.png`\n")
+}
+```
+
+```{r q2c-lean-table}
+#| echo: false
+dt_report(q2c, "Q2c — 5L versus 6L fixation-effect comparison")
+```
+
+# Appendix
+
+## A1. Q1a reporting category definitions
+
+The six Q1a categories form a **treatment-focused, mutually exclusive classification**, with **Unfixed serving as the baseline/reference**. A treatment-associated peak change takes priority in category assignment: if treatment changes the maximum in 5L and/or 6L, the row is assigned to a **Treatment Effect** category. The **Configuration Only** categories are used only when neither configuration shows a treatment-associated change; the 5L-versus-6L comparison then determines whether a configuration-associated difference remains. **Stable** indicates neither a treatment-associated nor configuration-associated peak change.
+
+The term **Comparable Area** can also appear in the separate comparison-area fields for treatment-effect rows; in that context it means only that the differing 5L and 6L maxima occur in laser regions available in both configurations. It does **not** change the row's primary treatment-effect category. Likewise, **dUV Block Difference** refers specifically to a configuration-associated difference involving the **320-nm dUV laser block**, which is present in 6L and absent from 5L.
+
+| Reporting category | Definition |
+|---|---|
+| **Configuration Only – dUV Block Difference** | No treatment-associated peak change is detected, but the 6L maximum occurs in the **320-nm dUV laser block**, which is absent from the 5L configuration. The corresponding 5L maximum therefore occurs under another available laser block. |
+| **Configuration Only – Comparable Area** | No treatment-associated peak change is detected, but the identified maximum differs between 5L and 6L within laser regions available in both configurations. |
+| **Treatment Effect – 5L Only** | Treatment changes the identified maximum relative to Unfixed in 5L, but not in 6L. A configuration-associated difference may also be present and is reported separately in the underlying comparison fields. |
+| **Treatment Effect – 6L Only** | Treatment changes the identified maximum relative to Unfixed in 6L, but not in 5L. A configuration-associated difference may also be present and is reported separately in the underlying comparison fields. |
+| **Treatment Effect – Both Configurations** | Treatment changes the identified maximum relative to Unfixed in both 5L and 6L. The underlying peak-channel and comparison-area fields show whether the exact treated response is the same or differs between configurations. |
+| **Stable** | No identified peak change is observed between configurations or following treatment relative to Unfixed. |
+
+**Near-tied maximum (QC flag):** A second-highest detector value ≥99% of the maximum is flagged separately. Near tie is **not** an additional reporting category because it describes confidence in the identified maximum rather than the source of the peak change.
+
+
+## A2. Spectral comparison metrics used in this report
+
+**RMSE (root mean squared error)** measures the overall magnitude of the difference between two spectral vectors across detector channels. In the fixation analyses, larger RMSE indicates a larger treatment-associated spectral change relative to the corresponding Unfixed spectrum.
+
+**Cosine similarity** measures similarity in the direction or shape of two spectral vectors. Values range from 0 to 1 for the non-negative spectral data analyzed here, with values closer to 1 indicating more similar spectral shapes. This is closely related to the **Similarity Index** used in full-spectrum flow cytometry. Cytek's Similarity Index is based on the cosine of the angle between fluorochrome spectral vectors and is implemented in SpectroFlo/Full Spectrum Viewer for comparing spectral signatures. Thus, use of cosine similarity here is grounded in an established spectral-flow framework rather than being a study-specific similarity concept. Published spectral-flow panel-design studies also use Similarity Index/cosine-based comparisons of fluorochrome signatures. Importantly, high pairwise cosine similarity describes spectral resemblance; it does not by itself determine whether a pair can or cannot be successfully unmixed in a complete panel.
+
+**Maximum detector difference** records the largest absolute change observed at any single detector/channel. It complements RMSE by identifying the largest localized spectral difference rather than summarizing change across the entire spectrum.
+
+**Total intensity change** measures the overall gain or loss of spectral intensity across detector channels.
+
+**Peak shift** measures movement of the detector/wavelength containing the identified maximum after treatment. Peak shift therefore addresses a different feature from RMSE: a spectrum may change in magnitude or shape without moving its maximum, and a small change between near-tied detectors can change the identified maximum with relatively little overall spectral change.
+
+
+## A3. Interactive data exploration
+
+In addition to this static report, we developed an **in-house Shiny application** for interactive exploration of the spectral data and analysis results. The application provides a complementary way to inspect individual fluorochromes, treatments, laser configurations, and spectral comparisons in greater detail. The Shiny application is intended as an exploratory companion to the predefined analyses reported here; the statistical results and conclusions in this report remain based on the scripted analysis workflow.
+
+
+# References
+
+Jensen, H. A., & Wnek, R. (2021). Analytical performance of a 25-marker spectral cytometry immune monitoring assay in peripheral blood. Cytometry Part A, 99, 180–193. https://doi.org/10.1002/cyto.a.24290
+
+Rajwa, B., & Roederer, M. (2025). Lost in translation: Harmonizing terminology and defining mathematical tools for panel optimization. Cytometry Part A, 107(12), 793–816. https://doi.org/10.1002/cyto.a.24972
+
+Mage, P. L., Konecny, A. J., & Mair, F. (2026). Measurement and prediction of unmixing-dependent spreading due to collinearity in spectral flow cytometry. Cytometry Part A, 109(6), 436–455. https://doi.org/10.1002/cyto.a.70044
