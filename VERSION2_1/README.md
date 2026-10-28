@@ -36,39 +36,7 @@ The four independent treatment analyses are **Unfixed**, **1% PFA**, **4% PFA**,
 - **5L/6L spectral overlays**, including marked maxima and zoomed views where available.
 - **Side-by-side figures** for 63c, filtered 83c, and 90c, organized for manuscript figure selection.
 
-The report is primarily a figure review resource; scientific interpretation can be developed separately with the experimental collaborators.
 
-## Suggested repository layout
-
-```text
-.
-├── README.md
-├── COMPARE_63c_83cfiltered_90c_LOW_MEMORY.qmd
-├── COMPARE_63c_83cfiltered_90c_LOW_MEMORY.html
-├── config_by_treatment_63c/
-├── config_by_treatment_83c_filtered/
-└── config_by_treatment_90c/
-```
-
-Adjust filenames to match those actually committed. The three figure directories contain PNG files referenced by the low-memory Quarto report.
-
-## Render the HTML
-
-With [Quarto](https://quarto.org/) and R installed, run:
-
-```bash
-quarto render COMPARE_63c_83cfiltered_90c_LOW_MEMORY.qmd
-```
-
-**Important:** The low-memory report references external PNGs rather than embedding them as base64. Keep the figure folders alongside the QMD and HTML when viewing or publishing the report. For browser viewing on GitHub, publish the HTML and image directories through **GitHub Pages**, or open the HTML locally.
-
-## Analysis conventions and limitations
-
-- Spectral-shape metrics use **shared active detector channels**; 6L-only deep-UV channels are evaluated separately for peak assignment.
-- Native-configuration peaks and shared-channel peaks are distinct comparisons.
-- Spectra are normalized for shape comparisons; these metrics do not measure absolute signal intensity.
-- The filtered 83c dataset excludes 16 flagged fluorochromes, so the three datasets do not have identical fluorochrome compositions.
-- Cosine similarity and RMSE do **not** directly measure spectral unmixing error, spreading error, or biological marker resolution.
 
 ## Project
 
